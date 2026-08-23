@@ -1,5 +1,5 @@
 # https://github.com/nulllaborg/mini-joystick-module
-from machine import I2C # type: ignore
+from machine import I2C
 
 class MiniJoyStickI2C:
     # Constants converted from the header file
