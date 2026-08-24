@@ -2,5 +2,6 @@
     "editor.inlineSuggest.enabled": false,
     "python.analysis.diagnosticSeverityOverrides": {
         "reportMissingImports": "none"
-    }
+    },
+    "python.analysis.typeCheckingMode": "standard"
 }
