@@ -8,7 +8,9 @@ from mini_joystick_i2c import MiniJoyStickI2C
 MATRIX_PIN = Pin(26, Pin.OUT)
 PIXELS_X = 16
 PIXELS_Y = 16
-LED_BRIGHTNESS = 50
+MAX_BRIGHTNESS = 50
+UNREVEALED_COLOUR = (255, 255, 255)
+FLAGGED_COLOUR = (255, 0, 0)
 MINE_COLOUR = (255, 0, 0)
 
 class PanelManager:
@@ -47,8 +49,9 @@ class LED:
         """Instantiates an LED pixel object with the appropriate attributes."""
         self._grid_pos = grid_pos
         self._colour = colour
-        self._brightness = LED_BRIGHTNESS
-        self._is_on = False
+        self._brightness = MAX_BRIGHTNESS
+        self._revealed = False
+        self._flagged = False
 
     def set_colour(self, colour: tuple[int, int, int]):
         """Mutator for the colour attribute of the LED pixel."""
@@ -61,18 +64,28 @@ class LED:
         else:
             self._brightness = brightness
 
-    def _calculate_rgb(self) -> tuple:
+    def _calculate_rgb(self, colour) -> tuple:
         """Non-public method returning the appropriate rgb for the pixel given its colour and brightness."""
-        # Generates an rgb tuple by mapping each colour value to a lambda function that transforms the integer into the appropriate
-        # range according to the ratio between the pixel brightness and 255.
-        return tuple(map(lambda x: x * self._brightness // 255, self._colour))
+        # Generates an rgb tuple by mapping each colour value (red, green and blue) to a lambda function that transforms the integer into the
+        # appropriate range according to the ratio between the pixel brightness and 255.
+        return tuple(map(lambda x: x * self._brightness // 255, colour))
+
+    def flag(self):
+        """Method (mutator) called when pixel is flagged as a mine (whether it is or not)."""
+        if not self._revealed:
+            self._flagged = True
 
     def reveal(self):
-        """Method called when the pixel is selected and / or revealed."""
-        pass
+        """Method (mutator) called when the pixel is selected and / or revealed."""
+        self._flagged = False
+        self._revealed = True
 
     def draw(self, panel_manager: PanelManager):
-        """Public method called to update the LED pixel colour in the panel matrix using message passing."""
-        if self._is_on:
-            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb())
+        """Public method called to update the LED pixel colour in the panel matrix depending on its state (using message passing)."""
+        if self._revealed:
+            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(self._colour))
+        elif self._flagged:
+            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(FLAGGED_COLOUR))
+        else:
+            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(UNREVEALED_COLOUR))
 
