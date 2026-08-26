@@ -89,3 +89,15 @@ class LED:
         else:
             panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(UNREVEALED_COLOUR))
 
+class Mine(LED):
+    """Mine subclass of LED -- type of pixel user should avoid in the game"""
+    # hit class attribute to determine whether any mine has been hit
+    hit = False
+
+    def __init__(self, grid_pos: tuple[int, int]):
+        """Creates an instance of a mine LED using the parent constructor."""
+        super().__init__(grid_pos, MINE_COLOUR)
+
+    def reveal(self):
+        """Override the reveal method from the parent class, updating the hit class attribute."""
+        Mine.hit = True
