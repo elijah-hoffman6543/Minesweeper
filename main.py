@@ -10,8 +10,9 @@ PIXELS_X = 16
 PIXELS_Y = 16
 MAX_BRIGHTNESS = 50
 UNREVEALED_COLOUR = (255, 255, 255)
-FLAGGED_COLOUR = (255, 0, 0)
+FLAGGED_COLOUR = (255, 53, 94)
 MINE_COLOUR = (255, 0, 0)
+EMPTYSQUARE_COLOUR = (0, 0, 0)
 
 class PanelManager:
     """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix"""
@@ -99,5 +100,16 @@ class Mine(LED):
         super().__init__(grid_pos, MINE_COLOUR)
 
     def reveal(self):
-        """Override the reveal method from the parent class, updating the hit class attribute."""
+        """Overrides the reveal method from the parent class and update the hit class attribute."""
         Mine.hit = True
+
+class EmptySquare(LED):
+    """EmptySquare subclass of LED -- type of pixel with no mine or number, reveals all pixels next it"""
+    def __init__(self, grid_pos: tuple[int, int]):
+        """Creates an instance of an empty square LED using the parent constructor."""
+        super().__init__(grid_pos, EMPTYSQUARE_COLOUR)
+
+    def reveal(self):
+        """Overrides the reveal method from the parent class and triggers reveal for surrounding LEDs."""
+        super().reveal()
+        # Trigger the reveal method of surrounding (non-mine) LEDs - will complete later
