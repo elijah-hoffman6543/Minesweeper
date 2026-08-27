@@ -13,6 +13,14 @@ UNREVEALED_COLOUR = (255, 255, 255)
 FLAGGED_COLOUR = (255, 53, 94)
 MINE_COLOUR = (255, 0, 0)
 EMPTYSQUARE_COLOUR = (0, 0, 0)
+NUMBERSQUARE_COLOURS = {1: (0, 0, 0),
+                        2: (0, 0, 0),
+                        3: (0, 0, 0),
+                        4: (0, 0, 0),
+                        5: (0, 0, 0),
+                        6: (0, 0, 0),
+                        7: (0, 0, 0),
+                        8: (0, 0, 0)}
 
 class PanelManager:
     """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix"""
@@ -113,3 +121,9 @@ class EmptySquare(LED):
         """Overrides the reveal method from the parent class and triggers reveal for surrounding LEDs."""
         super().reveal()
         # Trigger the reveal method of surrounding (non-mine) LEDs - will complete later
+
+class NumberSquare(LED):
+    """NumberSquare subclass of LED -- type of pixel displaying specific colour depending on number of surrounding mines"""
+    def __init__(self, grid_pos: tuple[int, int], num: int):
+        """Creates an instance of a number square LED using the parent constructor."""
+        super().__init__(grid_pos, NUMBERSQUARE_COLOURS[num])
