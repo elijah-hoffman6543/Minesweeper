@@ -85,7 +85,7 @@ class LED:
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
-        self._revealed = True  # Set to True here just to visualise location of mines
+        self._revealed = False
         self._flagged = False
 
     def set_colour(self, colour: tuple[int, int, int]):
