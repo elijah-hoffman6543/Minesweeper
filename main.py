@@ -1,5 +1,6 @@
 # Minesweeper game for ESP32 microcontroller and mini joystick i2c
 
+import random
 import neopixel
 from machine import Pin, I2C, Timer
 from mini_joystick_i2c import MiniJoyStickI2C
@@ -8,7 +9,7 @@ from mini_joystick_i2c import MiniJoyStickI2C
 MATRIX_PIN = Pin(26, Pin.OUT)
 PIXELS_X = 16
 PIXELS_Y = 16
-MAX_BRIGHTNESS = 50
+MAX_BRIGHTNESS = 20
 UNREVEALED_COLOUR = (255, 255, 255)
 FLAGGED_COLOUR = (255, 53, 94)
 MINE_COLOUR = (255, 0, 0)
@@ -21,14 +22,15 @@ NUMBERSQUARE_COLOURS = {1: (0, 0, 0),
                         6: (0, 0, 0),
                         7: (0, 0, 0),
                         8: (0, 0, 0)}
+NUMBER_OF_MINES = 50
 
 class PanelManager:
     """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix"""
     def __init__(self, pixels_x: int, pixels_y: int, matrix_pin: Pin):
         """Initialises panel manager object with the LED pixels and matrix as attributes."""
-        self._led_matrix = neopixel.Neopixel(matrix_pin, pixels_x * pixels_y)
-        # Generic values used here for LED objects, list will ultimately be generated in setup method using appropriate LED subclass
-        self._led_list = list(LED((x, y), (255, 255, 255)) for y in range(pixels_y) for x in range(pixels_x))
+        self._led_matrix = neopixel.NeoPixel(matrix_pin, pixels_x * pixels_y)
+        self._led_list = []  # List containing each LED object
+        self._mine_coords = []  # List containing just the tuple coordinates of each mine
         # Creates a 2 dimensional array using grid coordinates as the indexes to retrieve the index appropriate for LED matrix
         # that is in a serpantine array format. This is done by counting up if the row index is odd and otherwise counting down
         self._index_converter = [[x for x in (range(pixels_x * y, pixels_x * (y + 1), 1) if y % 2 != 0 else range(pixels_x * (y + 1) - 1, pixels_x * y - 1, -1))] for y in range(pixels_y)]
@@ -48,9 +50,33 @@ class PanelManager:
             pixel.draw(self)
         self._led_matrix.write()
 
+    def _surrounding_mines(self, grid_pos: tuple[int, int]):
+        """Non-public (protected) method used to determine number of mines surrounding a given coordinate."""
+        mine_count = 0
+        for a in range(-1, 2):
+            for b in range(-1, 2):
+                if (grid_pos[0] + a, grid_pos[1] + b) in self._mine_coords:
+                    mine_count += 1
+        return mine_count
+
     def setup_game(self):
         """Method that generates the map of mines randomly and the remaining pixels accordingly."""
-        pass
+        while len(self._mine_coords) < NUMBER_OF_MINES:
+            # Generate random coordinate in grid but only create mine if not already created
+            random_coord = (random.randint(0, PIXELS_X), random.randint(0, PIXELS_Y))
+            if random_coord not in self._mine_coords:
+                self._mine_coords.append(random_coord)
+
+        for y in range(PIXELS_Y):
+            for x in range(PIXELS_X):
+                if (x, y) not in self._mine_coords:
+                    mine_count = self._surrounding_mines((x, y))
+                    if mine_count == 0:
+                        self._led_list.append(EmptySquare((x, y)))
+                    else:
+                        self._led_list.append(NumberSquare((x, y), mine_count))
+                else:
+                    self._led_list.append(Mine((x, y)))
 
 class LED:
     """LED class -- used for each pixel in the matrix"""
@@ -59,7 +85,7 @@ class LED:
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
-        self._revealed = False
+        self._revealed = True  # Set to True here just to visualise location of mines
         self._flagged = False
 
     def set_colour(self, colour: tuple[int, int, int]):
@@ -127,3 +153,7 @@ class NumberSquare(LED):
     def __init__(self, grid_pos: tuple[int, int], num: int):
         """Creates an instance of a number square LED using the parent constructor."""
         super().__init__(grid_pos, NUMBERSQUARE_COLOURS[num])
+
+panel_manager = PanelManager(PIXELS_X, PIXELS_Y, MATRIX_PIN)
+panel_manager.setup_game()
+panel_manager.draw_pixels()
