@@ -1,31 +1,34 @@
 # Minesweeper game for ESP32 microcontroller and mini joystick i2c
 
 import random
+import time
 import neopixel
-from machine import Pin, I2C, Timer
+from machine import Pin, I2C
 from mini_joystick_i2c import MiniJoyStickI2C
 
 # Constants
 MATRIX_PIN = Pin(26, Pin.OUT)
+I2C_BUS = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 PIXELS_X = 16
 PIXELS_Y = 16
+JOYSTICK_DEBOUNCE_DURATION = 0.5e9
 MAX_BRIGHTNESS = 20
 UNREVEALED_COLOUR = (255, 255, 255)
-FLAGGED_COLOUR = (255, 53, 94)
+FLAGGED_COLOUR = (255, 67, 67)
 MINE_COLOUR = (255, 0, 0)
 EMPTYSQUARE_COLOUR = (0, 0, 0)
-NUMBERSQUARE_COLOURS = {1: (0, 0, 0),
-                        2: (0, 0, 0),
-                        3: (0, 0, 0),
-                        4: (0, 0, 0),
-                        5: (0, 0, 0),
-                        6: (0, 0, 0),
-                        7: (0, 0, 0),
-                        8: (0, 0, 0)}
+NUMBERSQUARE_COLOURS = {1: (106, 218, 255),  # Light Blue
+                        2: (107, 255, 118),  # Green
+                        3: (195, 141, 255),  # Purple
+                        4: (255, 131, 212),  # Pink
+                        5: (255, 141, 66),  # Orange
+                        6: (252, 240, 62),  # Yellow
+                        7: (143, 112, 77),  # Brown
+                        8: (42, 34, 217)}  # Dark Blue
 NUMBER_OF_MINES = 50
 
 class PanelManager:
-    """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix"""
+    """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix, acts as a facade class for handling the LEDs individually"""
     def __init__(self, pixels_x: int, pixels_y: int, matrix_pin: Pin):
         """Initialises panel manager object with the LED pixels and matrix as attributes."""
         self._led_matrix = neopixel.NeoPixel(matrix_pin, pixels_x * pixels_y)
@@ -42,15 +45,21 @@ class PanelManager:
     def update_pixel(self, grid_pos: tuple[int, int], rgb: tuple[int, int, int]):
         """Public method called by pixels to update status the status of the LED matrix."""
         # The index converter is used to turn the LED grid coordinates into the appropriate index in the serpentine array
-        self._led_matrix[self._index_converter[grid_pos[0]][grid_pos[1]]] = rgb
+        self._led_matrix[self._index_converter[grid_pos[1]][grid_pos[0]]] = rgb
+
+    def get_pixel(self, coordinate: list[int]) -> LED:
+        """Public method called by the joystick object to return the pixel at its location."""
+        # Returns the first (and only) value / LED from the list that has a matching position or coordinate
+        return next(filter(lambda led: led.get_pos() == tuple(coordinate), self._led_list))
 
     def draw_pixels(self):
         """Method that calls the draw method on each of the LEDs (using message passing) and publishes the changes to the matrix panel."""
+        # Using type polymorphism to treat each pixel in the list as the parent, LED object rather than their specific subclasses to access 'draw' method
         for pixel in self._led_list:
             pixel.draw(self)
         self._led_matrix.write()
 
-    def _surrounding_mines(self, grid_pos: tuple[int, int]):
+    def _surrounding_mines(self, grid_pos: tuple[int, int]) -> int:
         """Non-public (protected) method used to determine number of mines surrounding a given coordinate."""
         mine_count = 0
         for a in range(-1, 2):
@@ -85,8 +94,12 @@ class LED:
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
-        self._revealed = False
+        self._revealed = False  ###
         self._flagged = False
+
+    def get_pos(self) -> tuple[int, int]:
+        """Accessor for the grid position attribute of the LED."""
+        return self._grid_pos
 
     def set_colour(self, colour: tuple[int, int, int]):
         """Mutator for the colour attribute of the LED pixel."""
@@ -154,6 +167,80 @@ class NumberSquare(LED):
         """Creates an instance of a number square LED using the parent constructor."""
         super().__init__(grid_pos, NUMBERSQUARE_COLOURS[num])
 
+class Joystick(MiniJoyStickI2C):
+    """Joystick subclass of MiniJoyStickI2C from the given module -- manages and interprets joystick input"""
+    def __init__(self, i2c: I2C):
+        """Instantiates a joystick object, calling the parent constructor and then creates additional attributes"""
+        super().__init__(i2c)
+        self._prev_time = time.time_ns()
+        self._pos = [PIXELS_X // 2, PIXELS_Y // 2]
+
+    def _get_direction(self, t: int) -> str | None:
+        """Non-public method that returns the direction the joystick is pointed towards, outside of debouncing time."""
+        # t is used to represent the current time (number of nanoseconds) while avoiding confusion with the time module name
+        if t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
+            x_value = super().analog_read_x()
+            y_value = super().analog_read_y()
+            if x_value == 0:
+                self._prev_time = t
+                return 'left'
+            elif x_value == 255:
+                self._prev_time = t
+                return 'right'
+            elif y_value == 0:
+                self._prev_time = t
+                return 'down'
+            elif y_value == 255:
+                self._prev_time = t
+                return 'up'
+        return None
+
+    def _b_pressed(self, t: int) -> bool:
+        """Non-public method to check whether the 'B' button is pressed, outside of debouncing time."""
+        if super().button_pressed(super().BUTTON_B) and t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
+            self._prev_time = t
+            print("'B' pressed!")
+            return True
+        else:
+            return False
+
+    def _c_pressed(self, t: int) -> bool:
+        """Non-public method to check whether the 'C' button is pressed, outside of debouncing time."""
+        if super().button_pressed(super().BUTTON_C) and t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
+            self._prev_time = t
+            print("'C' pressed!")
+            return True
+        else:
+            return False
+
+    def check_joystick(self, panel: PanelManager):
+        """Public method that calls the private methods to check the state of the joystick and take the appropriate actions.
+        Utilises the 'facade pattern' to simplify the the function and message passing to call methods on other objects.
+        """
+        current_time = time.time_ns()
+        # Move joystick position depending on direction of joystick
+        direction = self._get_direction(current_time)
+        if direction == 'left':
+            self._pos[0] = max(self._pos[0] - 1, 0)
+        elif direction == 'right':
+            self._pos[0] = min(self._pos[0] + 1, PIXELS_X - 1)
+        elif direction == 'up':
+            self._pos[1] = max(self._pos[1] - 1, 0)
+        elif direction == 'down':
+            self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
+        if direction is not None:
+            print(f'Moved {direction} to {self._pos}')
+        # Reveals or flags the LED if buttons are pressed
+        led = panel.get_pixel(self._pos)
+        if self._b_pressed(current_time):
+            led.reveal()
+        elif self._c_pressed(current_time):
+            led.flag()
+
+joystick = Joystick(I2C_BUS)
 panel_manager = PanelManager(PIXELS_X, PIXELS_Y, MATRIX_PIN)
 panel_manager.setup_game()
-panel_manager.draw_pixels()
+
+while not joystick.button_pressed(MiniJoyStickI2C.BUTTON_D):
+    joystick.check_joystick(panel_manager)
+    panel_manager.draw_pixels()
