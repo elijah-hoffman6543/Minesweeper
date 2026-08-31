@@ -94,7 +94,7 @@ class LED:
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
-        self._revealed = False  ###
+        self._revealed = False
         self._flagged = False
 
     def get_pos(self) -> tuple[int, int]:
@@ -149,6 +149,7 @@ class Mine(LED):
     def reveal(self):
         """Overrides the reveal method from the parent class and update the hit class attribute."""
         Mine.hit = True
+        # Trigger the game ending sequence
 
 class EmptySquare(LED):
     """EmptySquare subclass of LED -- type of pixel with no mine or number, reveals all pixels next it"""
@@ -199,7 +200,6 @@ class Joystick(MiniJoyStickI2C):
         """Non-public method to check whether the 'B' button is pressed, outside of debouncing time."""
         if super().button_pressed(super().BUTTON_B) and t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
             self._prev_time = t
-            print("'B' pressed!")
             return True
         else:
             return False
@@ -208,7 +208,6 @@ class Joystick(MiniJoyStickI2C):
         """Non-public method to check whether the 'C' button is pressed, outside of debouncing time."""
         if super().button_pressed(super().BUTTON_C) and t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
             self._prev_time = t
-            print("'C' pressed!")
             return True
         else:
             return False
@@ -228,8 +227,6 @@ class Joystick(MiniJoyStickI2C):
             self._pos[1] = max(self._pos[1] - 1, 0)
         elif direction == 'down':
             self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
-        if direction is not None:
-            print(f'Moved {direction} to {self._pos}')
         # Reveals or flags the LED if buttons are pressed
         led = panel.get_pixel(self._pos)
         if self._b_pressed(current_time):
