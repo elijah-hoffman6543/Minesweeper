@@ -34,7 +34,7 @@ class PanelManager:
     def __init__(self, pixels_x: int, pixels_y: int, matrix_pin: Pin):
         """Initialises panel manager object with the LED pixels and matrix as attributes."""
         self._led_matrix = neopixel.NeoPixel(matrix_pin, pixels_x * pixels_y)
-        self._led_list = []  # List containing each LED object
+        self._led_list = [LED((x, y), UNREVEALED_COLOUR) for x in range(PIXELS_X) for y in range(PIXELS_Y)]  # List containing each LED object
         self._mine_coords = []  # List containing just the tuple coordinates of each mine
         # Creates a 2 dimensional array using grid coordinates as the indexes to retrieve the index appropriate for LED matrix
         # that is in a serpantine array format. This is done by counting up if the row index is odd and otherwise counting down
@@ -72,14 +72,15 @@ class PanelManager:
                     mine_count += 1
         return mine_count
 
-    def setup_game(self):
+    def setup_game(self, starting_pos: list[int]):
         """Method that generates the map of mines randomly and the remaining pixels accordingly."""
         while len(self._mine_coords) < NUMBER_OF_MINES:
             # Generate random coordinate in grid but only create mine if not already created
             random_coord = (random.randint(0, PIXELS_X - 1), random.randint(0, PIXELS_Y - 1))
-            if random_coord not in self._mine_coords:
+            if random_coord not in self._mine_coords and not (-1 <= random_coord[0] -  starting_pos[0] <= 1 and -1 <= random_coord[1] -  starting_pos[1] <= 1):
                 self._mine_coords.append(random_coord)
 
+        self._led_list = []
         for y in range(PIXELS_Y):
             for x in range(PIXELS_X):
                 if (x, y) not in self._mine_coords:
@@ -197,6 +198,8 @@ class NumberSquare(LED):
 
 class Joystick(MiniJoyStickI2C):
     """Joystick subclass of MiniJoyStickI2C from the given module -- manages and interprets joystick input"""
+    game_started = False  # Boolean class attribute to determine whether game has started, i.e. board is setup
+
     def __init__(self, i2c: I2C):
         """Instantiates a joystick object, calling the parent constructor and then creates additional attributes"""
         super().__init__(i2c)
@@ -263,13 +266,16 @@ class Joystick(MiniJoyStickI2C):
                 self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
         # Reveals or flags the LED if buttons are pressed
         if self._b_pressed(current_time):
+            if not self.game_started:
+                panel.setup_game(self._pos)
+                self.game_started = True
+                led = panel.get_pixel(self._pos)
             led.reveal(panel)
-        elif self._c_pressed(current_time):
+        elif self.game_started and self._c_pressed(current_time):
             led.flag()
 
 joystick = Joystick(I2C_BUS)
 panel_manager = PanelManager(PIXELS_X, PIXELS_Y, MATRIX_PIN)
-panel_manager.setup_game()
 
 while not joystick.button_pressed(MiniJoyStickI2C.BUTTON_D):
     joystick.check_joystick(panel_manager)
