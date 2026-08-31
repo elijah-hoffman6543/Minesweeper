@@ -12,17 +12,17 @@ I2C_BUS = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 PIXELS_X = 16
 PIXELS_Y = 16
 JOYSTICK_DEBOUNCE_DURATION = 0.5e9
-MAX_BRIGHTNESS = 20
+MAX_BRIGHTNESS = 50
 UNREVEALED_COLOUR = (255, 255, 255)
 FLAGGED_COLOUR = (255, 67, 67)
 MINE_COLOUR = (255, 0, 0)
-EMPTYSQUARE_COLOUR = (0, 0, 0)
+EMPTYSQUARE_COLOUR = (67, 67, 67)
 NUMBERSQUARE_COLOURS = {1: (106, 218, 255),  # Light Blue
                         2: (107, 255, 118),  # Green
-                        3: (195, 141, 255),  # Purple
-                        4: (255, 131, 212),  # Pink
+                        3: (160, 117, 209),  # Purple
+                        4: (252, 240, 62),  # Yellow
                         5: (255, 141, 66),  # Orange
-                        6: (252, 240, 62),  # Yellow
+                        6: (255, 131, 212),  # Pink
                         7: (143, 112, 77),  # Brown
                         8: (42, 34, 217)}  # Dark Blue
 NUMBER_OF_MINES = 50
@@ -47,7 +47,7 @@ class PanelManager:
         # The index converter is used to turn the LED grid coordinates into the appropriate index in the serpentine array
         self._led_matrix[self._index_converter[grid_pos[1]][grid_pos[0]]] = rgb
 
-    def get_pixel(self, coordinate: list[int]) -> LED:
+    def get_pixel(self, coordinate: tuple[int, int] | list[int]) -> LED:
         """Public method called by the joystick object to return the pixel at its location."""
         # Returns the first (and only) value / LED from the list that has a matching position or coordinate
         return next(filter(lambda led: led.get_pos() == tuple(coordinate), self._led_list))
@@ -72,7 +72,7 @@ class PanelManager:
         """Method that generates the map of mines randomly and the remaining pixels accordingly."""
         while len(self._mine_coords) < NUMBER_OF_MINES:
             # Generate random coordinate in grid but only create mine if not already created
-            random_coord = (random.randint(0, PIXELS_X), random.randint(0, PIXELS_Y))
+            random_coord = (random.randint(0, PIXELS_X - 1), random.randint(0, PIXELS_Y - 1))
             if random_coord not in self._mine_coords:
                 self._mine_coords.append(random_coord)
 
@@ -94,12 +94,16 @@ class LED:
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
-        self._revealed = False
+        self._revealed = True
         self._flagged = False
 
     def get_pos(self) -> tuple[int, int]:
         """Accessor for the grid position attribute of the LED."""
         return self._grid_pos
+
+    def is_revealed(self) -> bool:
+        """Accessor for the revealed attribute of the LED."""
+        return self._revealed
 
     def set_colour(self, colour: tuple[int, int, int]):
         """Mutator for the colour attribute of the LED pixel."""
@@ -123,7 +127,7 @@ class LED:
         if not self._revealed:
             self._flagged = True
 
-    def reveal(self):
+    def reveal(self, panel: PanelManager):
         """Method (mutator) called when the pixel is selected and / or revealed."""
         self._flagged = False
         self._revealed = True
@@ -146,7 +150,7 @@ class Mine(LED):
         """Creates an instance of a mine LED using the parent constructor."""
         super().__init__(grid_pos, MINE_COLOUR)
 
-    def reveal(self):
+    def reveal(self, panel: PanelManager):
         """Overrides the reveal method from the parent class and update the hit class attribute."""
         Mine.hit = True
         # Trigger the game ending sequence
@@ -157,10 +161,16 @@ class EmptySquare(LED):
         """Creates an instance of an empty square LED using the parent constructor."""
         super().__init__(grid_pos, EMPTYSQUARE_COLOUR)
 
-    def reveal(self):
+    def reveal(self, panel: PanelManager):
         """Overrides the reveal method from the parent class and triggers reveal for surrounding LEDs."""
-        super().reveal()
-        # Trigger the reveal method of surrounding (non-mine) LEDs - will complete later
+        super().reveal(panel)
+        for a in range(-1, 2):
+            for b in range(-1, 2):
+                new_pos = (self._grid_pos[0] + a, self._grid_pos[1] + b)
+                if 0 <= new_pos[0] < PIXELS_X and 0 <= new_pos[1] < PIXELS_Y and new_pos != self._grid_pos:
+                    led = panel.get_pixel(new_pos)
+                    if not led.is_revealed() and not isinstance(led, Mine):
+                        led.reveal(panel)
 
 class NumberSquare(LED):
     """NumberSquare subclass of LED -- type of pixel displaying specific colour depending on number of surrounding mines"""
@@ -214,7 +224,7 @@ class Joystick(MiniJoyStickI2C):
 
     def check_joystick(self, panel: PanelManager):
         """Public method that calls the private methods to check the state of the joystick and take the appropriate actions.
-        Utilises the 'facade pattern' to simplify the the function and message passing to call methods on other objects.
+        It utilises the 'facade pattern' to simplify the the function (method) as well as message passing to call methods on other objects.
         """
         current_time = time.time_ns()
         # Move joystick position depending on direction of joystick
@@ -230,7 +240,7 @@ class Joystick(MiniJoyStickI2C):
         # Reveals or flags the LED if buttons are pressed
         led = panel.get_pixel(self._pos)
         if self._b_pressed(current_time):
-            led.reveal()
+            led.reveal(panel)
         elif self._c_pressed(current_time):
             led.flag()
 
