@@ -11,7 +11,9 @@ MATRIX_PIN = Pin(26, Pin.OUT)
 I2C_BUS = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
 PIXELS_X = 16
 PIXELS_Y = 16
-JOYSTICK_DEBOUNCE_DURATION = 0.5e9
+JOYSTICK_DEBOUNCE_DURATION = 0.3e9
+CURSOR_FADE_SPEED = 10
+CURSOR_MIN_BRIGHTNESS = 20
 MAX_BRIGHTNESS = 50
 UNREVEALED_COLOUR = (255, 255, 255)
 FLAGGED_COLOUR = (255, 67, 67)
@@ -37,6 +39,8 @@ class PanelManager:
         # Creates a 2 dimensional array using grid coordinates as the indexes to retrieve the index appropriate for LED matrix
         # that is in a serpantine array format. This is done by counting up if the row index is odd and otherwise counting down
         self._index_converter = [[x for x in (range(pixels_x * y, pixels_x * (y + 1), 1) if y % 2 != 0 else range(pixels_x * (y + 1) - 1, pixels_x * y - 1, -1))] for y in range(pixels_y)]
+        self._cursor_brightness = 100  # Cursor brightness is used as a percentage value (from 0 to 100) of the maximum brightness
+        self._cursor_fade_down = True
 
     def wipe_pixels(self):
         """Method that wipes all of the pixels."""
@@ -87,6 +91,19 @@ class PanelManager:
                 else:
                     self._led_list.append(Mine((x, y)))
 
+    def flash_cursor(self, joystick: Joystick):
+        """Method that fluctuates the brightness of the selected pixel to show the location of the joystick cursor."""
+        cursor_led = self.get_pixel(joystick.get_pos())
+        cursor_led.set_brightness(MAX_BRIGHTNESS * self._cursor_brightness // 100)
+        if self._cursor_fade_down:
+            self._cursor_brightness -= CURSOR_FADE_SPEED
+            if self._cursor_brightness <= CURSOR_MIN_BRIGHTNESS:
+                self._cursor_fade_down = False
+        else:
+            self._cursor_brightness += CURSOR_FADE_SPEED
+            if self._cursor_brightness >= 100:
+                self._cursor_fade_down = True
+
 class LED:
     """LED class -- used for each pixel in the matrix"""
     def __init__(self, grid_pos: tuple[int, int], colour: tuple[int, int, int]):
@@ -94,7 +111,7 @@ class LED:
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
-        self._revealed = True
+        self._revealed = False
         self._flagged = False
 
     def get_pos(self) -> tuple[int, int]:
@@ -186,6 +203,10 @@ class Joystick(MiniJoyStickI2C):
         self._prev_time = time.time_ns()
         self._pos = [PIXELS_X // 2, PIXELS_Y // 2]
 
+    def get_pos(self) -> list[int]:
+        """Accessor method for joystick cursor position."""
+        return self._pos
+
     def _get_direction(self, t: int) -> str | None:
         """Non-public method that returns the direction the joystick is pointed towards, outside of debouncing time."""
         # t is used to represent the current time (number of nanoseconds) while avoiding confusion with the time module name
@@ -227,18 +248,20 @@ class Joystick(MiniJoyStickI2C):
         It utilises the 'facade pattern' to simplify the the function (method) as well as message passing to call methods on other objects.
         """
         current_time = time.time_ns()
+        led = panel.get_pixel(self._pos)
         # Move joystick position depending on direction of joystick
         direction = self._get_direction(current_time)
-        if direction == 'left':
-            self._pos[0] = max(self._pos[0] - 1, 0)
-        elif direction == 'right':
-            self._pos[0] = min(self._pos[0] + 1, PIXELS_X - 1)
-        elif direction == 'up':
-            self._pos[1] = max(self._pos[1] - 1, 0)
-        elif direction == 'down':
-            self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
+        if direction is not None:
+            led.set_brightness(MAX_BRIGHTNESS)
+            if direction == 'left':
+                self._pos[0] = max(self._pos[0] - 1, 0)
+            elif direction == 'right':
+                self._pos[0] = min(self._pos[0] + 1, PIXELS_X - 1)
+            elif direction == 'up':
+                self._pos[1] = max(self._pos[1] - 1, 0)
+            elif direction == 'down':
+                self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
         # Reveals or flags the LED if buttons are pressed
-        led = panel.get_pixel(self._pos)
         if self._b_pressed(current_time):
             led.reveal(panel)
         elif self._c_pressed(current_time):
@@ -250,4 +273,5 @@ panel_manager.setup_game()
 
 while not joystick.button_pressed(MiniJoyStickI2C.BUTTON_D):
     joystick.check_joystick(panel_manager)
+    panel_manager.flash_cursor(joystick)
     panel_manager.draw_pixels()
