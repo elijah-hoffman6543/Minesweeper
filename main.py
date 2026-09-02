@@ -2,7 +2,6 @@
 
 import random
 import time
-import sys
 import neopixel
 from machine import Pin, I2C
 from mini_joystick_i2c import MiniJoyStickI2C
@@ -39,6 +38,7 @@ class PanelManager:
     def __init__(self, pixels_x: int, pixels_y: int, matrix_pin: Pin):
         """Initialises panel manager object with the LED pixels and matrix as attributes."""
         self._game_over = False
+        self._game_won = False
         self._led_matrix = neopixel.NeoPixel(matrix_pin, pixels_x * pixels_y)
         self._led_list = [LED((x, y), UNREVEALED_COLOUR) for x in range(PIXELS_X) for y in range(PIXELS_Y)]  # List containing each LED object
         self._mine_coords = []  # List containing just the tuple coordinates of each mine
@@ -52,6 +52,10 @@ class PanelManager:
     def is_game_over(self) -> bool:
         """Accessor method for the protected game over attribute."""
         return self._game_over
+
+    def is_game_won(self) -> bool:
+        """Accessor method for the protected game won attribute"""
+        return self._game_won
 
     def wipe_pixels(self):
         """Method that wipes all of the pixels."""
@@ -129,6 +133,7 @@ class PanelManager:
         # Update the game-ending colour depending on whether the game was won or lost.
         if won:
             game_finish_colour = GAME_WON_COLOUR
+            self._game_won = True
         else:
             game_finish_colour = GAME_LOST_COLOUR
         self.get_pixel(last_pos).set_brightness(MAX_BRIGHTNESS)
@@ -323,7 +328,26 @@ class Joystick(MiniJoyStickI2C):
 joystick = Joystick(I2C_BUS)
 panel_manager = PanelManager(PIXELS_X, PIXELS_Y, MATRIX_PIN)
 
+# Store the starting time of the game for score tracking purposes.
+start_time = int(time.time())
+
 while not panel_manager.is_game_over() and not joystick.button_pressed(MiniJoyStickI2C.BUTTON_D):
     joystick.check_joystick(panel_manager)
     panel_manager.flash_cursor(joystick)
     panel_manager.draw_pixels()
+
+# Store the ending time of the game for score tracking purposes.
+end_time = int(time.time())
+# The "high score.txt" file must be downloaded to the microcontroller with first line "HIGH SCORES:"
+if panel_manager.is_game_won():
+    with open("high score.txt", "r+") as f:
+        last_line = f.readlines()[-1]
+        current_score = end_time - start_time
+        # Only add to the file if there is no best time score or it beats the previous one
+        if last_line == "HIGH SCORES:":
+            f.write(f"\nTime: {current_score//60} min {current_score%60} sec")
+        else:
+            last_line = last_line.strip("Time: ").split()
+            previous_score = int(last_line[0])*60 + int(last_line[2])  # Combine minutes and seconds
+            if current_score < previous_score:
+                f.write(f"\nTime: {current_score//60} min {current_score%60} sec | Mines: {NUMBER_OF_MINES}")
