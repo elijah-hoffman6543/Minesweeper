@@ -50,6 +50,7 @@ class PanelManager:
         self._game_won = False  # True when game was won, used do determine whether to track score
         self._led_matrix = neopixel.NeoPixel(matrix_pin, pixels_x * pixels_y)
         self._led_list = [LED((x, y), UNREVEALED_COLOUR) for x in range(PIXELS_X) for y in range(PIXELS_Y)]  # List containing each LED object
+        self._selected_led = self._led_list[(PIXELS_Y * (PIXELS_X // 2)) + PIXELS_Y // 2]  # Set default selected pixel to middle of grid
         self._mine_coords = []  # List containing just the tuple coordinates of each mine
         # The index_converter creates a 2 dimensional array using grid coordinates as the indexes to retrieve the index appropriate for LED matrix
         # that is in a serpentine array format. This is done by counting up if the row index is odd and otherwise counting down.
@@ -63,7 +64,7 @@ class PanelManager:
         return self._game_over
 
     def is_game_won(self) -> bool:
-        """Accessor method for the protected game won attribute"""
+        """Accessor method for the protected game won attribute."""
         return self._game_won
 
     def update_pixel(self, grid_pos: tuple[int, int], rgb: tuple[int, int, int]):
@@ -119,11 +120,14 @@ class PanelManager:
                 else:
                     self._led_list.append(Mine((x, y)))
 
-    def flash_cursor(self, joystick: Joystick):
-        """Method that fluctuates the brightness of the selected pixel to show the location of the joystick cursor (obtained using message passing)."""
+    def move_selected_led(self, new_pos: list[int]):
+        """Public mutator method for the selected_led attribute."""
+        self._selected_led = self.get_pixel(new_pos)
+
+    def flash_cursor(self):
+        """Method that fluctuates the brightness of the selected pixel to show the location of the joystick cursor."""
         # Set the modulated brightness of LED at the joystick position
-        cursor_led = self.get_pixel(joystick.get_pos())
-        cursor_led.set_brightness(MAX_BRIGHTNESS * self._cursor_brightness // 100)
+        self._selected_led.set_brightness(MAX_BRIGHTNESS * self._cursor_brightness // 100)
         # Fade up or down between 100% and and the minimum cursor brightness (defined earlier)
         if self._cursor_fade_down:
             self._cursor_brightness -= CURSOR_FADE_SPEED
@@ -342,6 +346,7 @@ class Joystick(MiniJoyStickI2C):
                 self._pos[1] = max(self._pos[1] - 1, 0)
             elif direction == 'down':
                 self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
+            panel.move_selected_led(self._pos)
         # Reveals or flags the LED if buttons are pressed
         if self.__b_pressed(current_time):
             if not self._game_started:
@@ -363,7 +368,7 @@ start_time = int(time.time())
 while not panel_manager.is_game_over() and not joystick.button_pressed(MiniJoyStickI2C.BUTTON_D):
     # Call the three main facade methods to run the game
     joystick.check_joystick(panel_manager)
-    panel_manager.flash_cursor(joystick)
+    panel_manager.flash_cursor()
     panel_manager.draw_pixels()
 
 # Store the ending time of the game for score tracking purposes.
