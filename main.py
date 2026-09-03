@@ -1,10 +1,11 @@
 # Minesweeper game for ESP32 microcontroller and mini joystick i2c
-# Import standard MicroPython libraries and the mini joystick module
+# Import standard MicroPython libraries, the mini joystick module and for demonstrative purposes the multimethod library
 import random
 import time
 import neopixel
 from machine import Pin, I2C
 from mini_joystick_i2c import MiniJoyStickI2C
+# from multimethod import multimethod
 
 # CONSTANTS:
 # Input and output machine objects
@@ -70,10 +71,16 @@ class PanelManager:
         # The index converter is used to turn the LED grid coordinates into the appropriate index in the serpentine array
         self._led_matrix[self._index_converter[grid_pos[1]][grid_pos[0]]] = rgb
 
+    # @multimethod
     def get_pixel(self, coordinate: tuple[int, int] | list[int]) -> LED:
         """Public method called by the joystick object to return the pixel at its location."""
         # Returns the first (and only) value / LED from the list that has a matching position or coordinate
         return next(filter(lambda led: led.get_pos() == tuple(coordinate), self._led_list))
+
+    # This method could be overloaded as follows to fit the incoming data structure for the coordinate
+    # @multimethod
+    # def get_pixel(self, coordinate: tuple[int, int]) -> LED:
+        # return next(filter(lambda led: led.get_pos() == coordinate, self._led_list))
 
     def draw_pixels(self):
         """Method that calls the draw method on each of the LEDs (using message passing) and publishes the changes to the matrix panel."""
@@ -194,11 +201,17 @@ class LED:
         else:
             self._brightness = brightness
 
-    def _calculate_rgb(self, colour) -> tuple:
+    # @multimethod
+    def _calculate_rgb(self, colour: tuple[int, int, int]) -> tuple:
         """Non-public method returning the appropriate rgb for the pixel given its colour and brightness."""
         # Generates an rgb tuple by mapping each colour value (red, green and blue) to a lambda function that transforms the integer into the
         # appropriate range according to the ratio between the pixel brightness and 255.
         return tuple(map(lambda x: x * self._brightness // 255, colour))
+
+    # This method could also be overloaded to support more colour formats. (Other methods may also have to be overloaded for full functionality)
+    # @multimethod
+    # def _calculate_rgb(self, colour: str) -> tuple:
+        # return tuple(map(lambda x: int(x, 16) * self._brightness // 255, [colour[i:i+2] for i in range(0, 6, 2)]))
 
     def flag(self):
         """Public mutator method called when pixel is flagged as a mine (whether it is or not)."""
