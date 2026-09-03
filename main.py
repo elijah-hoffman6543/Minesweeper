@@ -1,20 +1,24 @@
 # Minesweeper game for ESP32 microcontroller and mini joystick i2c
-
+# Import standard MicroPython libraries and the mini joystick module
 import random
 import time
 import neopixel
 from machine import Pin, I2C
 from mini_joystick_i2c import MiniJoyStickI2C
 
-# Constants
-MATRIX_PIN = Pin(26, Pin.OUT)
+# CONSTANTS:
+# Input and output machine objects
+MATRIX_PIN = Pin(2, Pin.OUT)
 I2C_BUS = I2C(0, scl=Pin(22), sda=Pin(21), freq=400000)
+# Matrix dimensions
 PIXELS_X = 16
 PIXELS_Y = 16
+# Joystick and cursor timing constants
 JOYSTICK_DEBOUNCE_DURATION = 0.4e9
 CURSOR_FADE_SPEED = 10
-CURSOR_MIN_BRIGHTNESS = 20
-MAX_BRIGHTNESS = 50
+CURSOR_MIN_BRIGHTNESS = 20  # Used as a percentage; out of 100
+# Colours and brightness
+MAX_BRIGHTNESS = 30
 UNREVEALED_COLOUR = (255, 255, 255)
 FLAGGED_COLOUR = (255, 67, 67)
 MINE_COLOUR = (255, 0, 0)
@@ -29,25 +33,29 @@ NUMBERSQUARE_COLOURS = {1: (106, 218, 255),  # Light Blue
                         8: (42, 34, 217)}  # Dark Blue
 GAME_WON_COLOUR = (0, 255, 0)
 GAME_LOST_COLOUR = (255, 0, 0)
+# Number of mines to be generated (essentially the difficulty) -- Note: if too low (less than 20-30) the program will reach max. recursive depth
 NUMBER_OF_MINES = 50
+# Game over animation timing constants
 MINE_REVEAL_INTERVAL = 0.1
 GAME_OVER_DURATION = 3
 
 class PanelManager:
-    """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix, acts as a facade class for handling the LEDs individually"""
+    """Panel Manager class -- controls / manages all LED objects and interaction with the neopixel matrix, acts as a facade class for handling the LEDs
+    The class also manages game functions such as flashing the cursor, generating the mine map and controlling the game over animation.
+    """
     def __init__(self, pixels_x: int, pixels_y: int, matrix_pin: Pin):
         """Initialises panel manager object with the LED pixels and matrix as attributes."""
-        self._game_over = False
-        self._game_won = False
+        self._game_over = False  # True when game is over, win or lose
+        self._game_won = False  # True when game was won, used do determine whether to track score
         self._led_matrix = neopixel.NeoPixel(matrix_pin, pixels_x * pixels_y)
         self._led_list = [LED((x, y), UNREVEALED_COLOUR) for x in range(PIXELS_X) for y in range(PIXELS_Y)]  # List containing each LED object
         self._mine_coords = []  # List containing just the tuple coordinates of each mine
-        # Creates a 2 dimensional array using grid coordinates as the indexes to retrieve the index appropriate for LED matrix
-        # that is in a serpantine array format. This is done by counting up if the row index is odd and otherwise counting down
+        # The index_converter creates a 2 dimensional array using grid coordinates as the indexes to retrieve the index appropriate for LED matrix
+        # that is in a serpentine array format. This is done by counting up if the row index is odd and otherwise counting down.
         self._index_converter = [[x for x in (range(pixels_x * y, pixels_x * (y + 1), 1) if y % 2 != 0 else range(pixels_x * (y + 1) - 1, pixels_x * y - 1, -1))] for y in range(pixels_y)]
         self._cursor_brightness = 100  # Cursor brightness is used as a percentage value (from 0 to 100) of the maximum brightness
-        self._cursor_fade_down = True
-        self._reveal_counter = 0
+        self._cursor_fade_down = True  # Determines whether the cursor is increasing / decreasing in brightness
+        self._reveal_counter = 0  # Used for counting the number of non-mines revealed so far
 
     def is_game_over(self) -> bool:
         """Accessor method for the protected game over attribute."""
@@ -57,12 +65,8 @@ class PanelManager:
         """Accessor method for the protected game won attribute"""
         return self._game_won
 
-    def wipe_pixels(self):
-        """Method that wipes all of the pixels."""
-        del self._led_list
-
     def update_pixel(self, grid_pos: tuple[int, int], rgb: tuple[int, int, int]):
-        """Public method called by pixels to update status the status of the LED matrix."""
+        """Public mutator method called by pixels to update status the status of the LED matrix."""
         # The index converter is used to turn the LED grid coordinates into the appropriate index in the serpentine array
         self._led_matrix[self._index_converter[grid_pos[1]][grid_pos[0]]] = rgb
 
@@ -73,14 +77,15 @@ class PanelManager:
 
     def draw_pixels(self):
         """Method that calls the draw method on each of the LEDs (using message passing) and publishes the changes to the matrix panel."""
-        # Using type polymorphism to treat each pixel in the list as the parent, LED object rather than their specific subclasses to access 'draw' method
+        # Using type polymorphism to treat each pixel in the list as their parent, LED object rather than their specific subclass objects in order to access 'draw' method
         for pixel in self._led_list:
             pixel.draw(self)
-        self._led_matrix.write()
+        self._led_matrix.write()  # Update the neopixel display with the new colours and brightnesses
 
     def _surrounding_mines(self, grid_pos: tuple[int, int]) -> int:
         """Non-public (protected) method used to determine number of mines surrounding a given coordinate."""
         mine_count = 0
+        # Loops through the nine grid coordinates surrounding the coordinate with adjusting modifiers
         for a in range(-1, 2):
             for b in range(-1, 2):
                 if (grid_pos[0] + a, grid_pos[1] + b) in self._mine_coords:
@@ -90,11 +95,11 @@ class PanelManager:
     def setup_game(self, starting_pos: list[int]):
         """Method that generates the map of mines randomly and the remaining pixels accordingly."""
         while len(self._mine_coords) < NUMBER_OF_MINES:
-            # Generate random coordinate in grid but only create mine if not already created
+            # Generate random coordinate in grid but only add to the mine list if it is not on or next to the selected coordinate
             random_coord = (random.randint(0, PIXELS_X - 1), random.randint(0, PIXELS_Y - 1))
-            if random_coord not in self._mine_coords and not (-1 <= random_coord[0] -  starting_pos[0] <= 1 and -1 <= random_coord[1] -  starting_pos[1] <= 1):
+            if not (-1 <= random_coord[0] -  starting_pos[0] <= 1 and -1 <= random_coord[1] -  starting_pos[1] <= 1):
                 self._mine_coords.append(random_coord)
-
+        # Create each specific type of LED object in the grid, depending on whether it is on or next to a mine
         self._led_list = []
         for y in range(PIXELS_Y):
             for x in range(PIXELS_X):
@@ -108,9 +113,11 @@ class PanelManager:
                     self._led_list.append(Mine((x, y)))
 
     def flash_cursor(self, joystick: Joystick):
-        """Method that fluctuates the brightness of the selected pixel to show the location of the joystick cursor."""
+        """Method that fluctuates the brightness of the selected pixel to show the location of the joystick cursor (obtained using message passing)."""
+        # Set the modulated brightness of LED at the joystick position
         cursor_led = self.get_pixel(joystick.get_pos())
         cursor_led.set_brightness(MAX_BRIGHTNESS * self._cursor_brightness // 100)
+        # Fade up or down between 100% and and the minimum cursor brightness (defined earlier)
         if self._cursor_fade_down:
             self._cursor_brightness -= CURSOR_FADE_SPEED
             if self._cursor_brightness <= CURSOR_MIN_BRIGHTNESS:
@@ -136,18 +143,22 @@ class PanelManager:
             self._game_won = True
         else:
             game_finish_colour = GAME_LOST_COLOUR
+        # Reset the fading cursor pixel to maximum brightness
         self.get_pixel(last_pos).set_brightness(MAX_BRIGHTNESS)
+        # Reveal each mine, one by one with a time delay interval
         for led in self._led_list:
             if isinstance(led, Mine):
                 led.set_colour(game_finish_colour)
                 led.show()
                 self.draw_pixels()
                 time.sleep(MINE_REVEAL_INTERVAL)
+        # Show every LED and set their colour to the game_finish_colour
         for led in self._led_list:
             led.show()
             led.set_colour(game_finish_colour)
         self.draw_pixels()
         time.sleep(GAME_OVER_DURATION)
+        # Reset all pixels to black to prevent ongoing power output requirements
         for led in self._led_list:
             led.set_colour((0, 0, 0))
         self._game_over = True
@@ -156,6 +167,8 @@ class LED:
     """LED class -- used for each pixel in the matrix"""
     def __init__(self, grid_pos: tuple[int, int], colour: tuple[int, int, int]):
         """Instantiates an LED pixel object with the appropriate attributes."""
+        # While the following attributes could be private (two leading underscores) to prevent their use anywhere outside this specific class,
+        # they need to be accessed by the following subclasses for full functionality. Thus they have been declared as 'protected' (one leading underscore).
         self._grid_pos = grid_pos
         self._colour = colour
         self._brightness = MAX_BRIGHTNESS
@@ -188,20 +201,21 @@ class LED:
         return tuple(map(lambda x: x * self._brightness // 255, colour))
 
     def flag(self):
-        """Public method (mutator) called when pixel is flagged as a mine (whether it is or not)."""
+        """Public mutator method called when pixel is flagged as a mine (whether it is or not)."""
         self._flagged = not self._flagged
 
     def reveal(self, panel: PanelManager):
-        """Public method (mutator) called when the pixel is selected and / or revealed."""
+        """Public mutator method called when the pixel is selected and / or revealed."""
         if not self._revealed:
             self._flagged = False
             self._revealed = True
+            # Increment reveal counter and check winning condition, whether all non-mine LEDs have been revealed
             panel.increment_reveal_counter()
             if panel.get_reveal_counter() == PIXELS_X * PIXELS_Y - NUMBER_OF_MINES:
                 panel.end_game(self._grid_pos, True)
 
     def show(self):
-        """Public method with same functionality as the reveal method; used for game ending sequence."""
+        """Public mutator method with same functionality as the reveal method; used for game ending sequence."""
         self._flagged = False
         self._revealed = True
 
@@ -215,28 +229,28 @@ class LED:
             panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(UNREVEALED_COLOUR))
 
 class Mine(LED):
-    """Mine subclass of LED -- type of pixel user should avoid in the game"""
-
+    """Mine subclass of LED -- type of pixel user should avoid in the game to win"""
     def __init__(self, grid_pos: tuple[int, int]):
-        """Creates an instance of a mine LED using the parent constructor."""
+        """Creates an instance of a mine LED by overriding and using the parent constructor."""
         super().__init__(grid_pos, MINE_COLOUR)
 
     def reveal(self, panel: PanelManager):
-        """Overrides the reveal method from the parent class and update the hit class attribute."""
+        """Overrides the reveal method from the parent class and triggers the (losing) end_game method from the PanelManager."""
         panel.end_game(self._grid_pos, False)
 
 class EmptySquare(LED):
     """EmptySquare subclass of LED -- type of pixel with no mine or number, reveals all pixels next it"""
     def __init__(self, grid_pos: tuple[int, int]):
-        """Creates an instance of an empty square LED using the parent constructor."""
+        """Creates an instance of an empty square LED by overriding and using the parent constructor."""
         super().__init__(grid_pos, EMPTYSQUARE_COLOUR)
 
     def reveal(self, panel: PanelManager):
-        """Overrides the reveal method from the parent class and triggers reveal for surrounding LEDs."""
+        """Overrides the reveal method from the parent class and triggers reveal method for surrounding LEDs (recursion)."""
         super().reveal(panel)
         for a in range(-1, 2):
             for b in range(-1, 2):
                 new_pos = (self._grid_pos[0] + a, self._grid_pos[1] + b)
+                # Only reveal surrounding pixels if they are within the grid, not the current pixel and not a mine
                 if 0 <= new_pos[0] < PIXELS_X and 0 <= new_pos[1] < PIXELS_Y and new_pos != self._grid_pos:
                     led = panel.get_pixel(new_pos)
                     if not led.is_revealed() and not isinstance(led, Mine):
@@ -245,54 +259,54 @@ class EmptySquare(LED):
 class NumberSquare(LED):
     """NumberSquare subclass of LED -- type of pixel displaying specific colour depending on number of surrounding mines"""
     def __init__(self, grid_pos: tuple[int, int], num: int):
-        """Creates an instance of a number square LED using the parent constructor."""
+        """Creates an instance of a number square LED by overriding and using the parent constructor."""
         super().__init__(grid_pos, NUMBERSQUARE_COLOURS[num])
 
 class Joystick(MiniJoyStickI2C):
     """Joystick subclass of MiniJoyStickI2C from the given module -- manages and interprets joystick input"""
     def __init__(self, i2c: I2C):
         """Instantiates a joystick object, calling the parent constructor and then creates additional attributes"""
-        super().__init__(i2c)
-        self._game_started = False  # Boolean class attribute to determine whether game has started, i.e. board is setup
-        self._prev_time = time.time_ns()
-        self._pos = [PIXELS_X // 2, PIXELS_Y // 2]
+        super().__init__(i2c)  # Call the parent constructor for basic joystick functionality
+        self._game_started = False  # Boolean attribute to determine whether game has started, i.e. board is setup
+        self._prev_time = time.time_ns()  # Used to track the last time the joystick was used
+        self._pos = [PIXELS_X // 2, PIXELS_Y // 2]  # Position tracker, initially at the centre of the board
 
     def get_pos(self) -> list[int]:
         """Accessor method for joystick cursor position."""
         return self._pos
 
-    def _get_direction(self, t: int) -> str | None:
+    def _get_direction(self, current_time: int) -> str | None:
         """Non-public method that returns the direction the joystick is pointed towards, outside of debouncing time."""
-        # t is used to represent the current time (number of nanoseconds) while avoiding confusion with the time module name
-        if t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
+        # current_time is used to represent the current time (number of nanoseconds) while avoiding confusion with the time module name
+        if current_time - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
             x_value = super().analog_read_x()
             y_value = super().analog_read_y()
             if x_value == 0:
-                self._prev_time = t
+                self._prev_time = current_time
                 return 'left'
             elif x_value == 255:
-                self._prev_time = t
+                self._prev_time = current_time
                 return 'right'
             elif y_value == 0:
-                self._prev_time = t
+                self._prev_time = current_time
                 return 'down'
             elif y_value == 255:
-                self._prev_time = t
+                self._prev_time = current_time
                 return 'up'
         return None
 
-    def _b_pressed(self, t: int) -> bool:
+    def _b_pressed(self, current_time: int) -> bool:
         """Non-public method to check whether the 'B' button is pressed, outside of debouncing time."""
-        if super().button_pressed(super().BUTTON_B) and t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
-            self._prev_time = t
+        if current_time - self._prev_time > JOYSTICK_DEBOUNCE_DURATION and super().button_pressed(super().BUTTON_B):
+            self._prev_time = current_time
             return True
         else:
             return False
 
-    def _c_pressed(self, t: int) -> bool:
+    def _c_pressed(self, current_time: int) -> bool:
         """Non-public method to check whether the 'C' button is pressed, outside of debouncing time."""
-        if super().button_pressed(super().BUTTON_C) and t - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
-            self._prev_time = t
+        if current_time - self._prev_time > JOYSTICK_DEBOUNCE_DURATION and super().button_pressed(super().BUTTON_C):
+            self._prev_time = current_time
             return True
         else:
             return False
@@ -325,13 +339,16 @@ class Joystick(MiniJoyStickI2C):
         elif self._game_started and self._c_pressed(current_time):
             led.flag()
 
+# Instantiate joystick and panel_manager objects
 joystick = Joystick(I2C_BUS)
 panel_manager = PanelManager(PIXELS_X, PIXELS_Y, MATRIX_PIN)
 
 # Store the starting time of the game for score tracking purposes.
 start_time = int(time.time())
 
+# Game loop (runs until user wins, loses or presses blue exit button)
 while not panel_manager.is_game_over() and not joystick.button_pressed(MiniJoyStickI2C.BUTTON_D):
+    # Call the three main facade methods to run the game
     joystick.check_joystick(panel_manager)
     panel_manager.flash_cursor(joystick)
     panel_manager.draw_pixels()
@@ -345,7 +362,7 @@ if panel_manager.is_game_won():
         current_score = end_time - start_time
         # Only add to the file if there is no best time score or it beats the previous one
         if last_line == "HIGH SCORES:":
-            f.write(f"\nTime: {current_score//60} min {current_score%60} sec")
+            f.write(f"\nTime: {current_score//60} min {current_score%60} sec | Mines: {NUMBER_OF_MINES}")  # converts seconds to minutes and seconds
         else:
             last_line = last_line.strip("Time: ").split()
             previous_score = int(last_line[0])*60 + int(last_line[2])  # Combine minutes and seconds
