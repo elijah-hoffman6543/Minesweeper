@@ -89,8 +89,8 @@ class PanelManager:
             pixel.draw(self)
         self._led_matrix.write()  # Update the neopixel display with the new colours and brightnesses
 
-    def _surrounding_mines(self, grid_pos: tuple[int, int]) -> int:
-        """Non-public (protected) method used to determine number of mines surrounding a given coordinate."""
+    def __surrounding_mines(self, grid_pos: tuple[int, int]) -> int:
+        """Non-public (private) method used to determine number of mines surrounding a given coordinate."""
         mine_count = 0
         # Loops through the nine grid coordinates surrounding the coordinate with adjusting modifiers
         for a in range(-1, 2):
@@ -111,7 +111,7 @@ class PanelManager:
         for y in range(PIXELS_Y):
             for x in range(PIXELS_X):
                 if (x, y) not in self._mine_coords:
-                    mine_count = self._surrounding_mines((x, y))
+                    mine_count = self.__surrounding_mines((x, y))
                     if mine_count == 0:
                         self._led_list.append(EmptySquare((x, y)))
                     else:
@@ -202,7 +202,7 @@ class LED:
             self._brightness = brightness
 
     # @multimethod
-    def _calculate_rgb(self, colour: tuple[int, int, int]) -> tuple:
+    def __calculate_rgb(self, colour: tuple[int, int, int]) -> tuple:
         """Non-public method returning the appropriate rgb for the pixel given its colour and brightness."""
         # Generates an rgb tuple by mapping each colour value (red, green and blue) to a lambda function that transforms the integer into the
         # appropriate range according to the ratio between the pixel brightness and 255.
@@ -235,11 +235,11 @@ class LED:
     def draw(self, panel_manager: PanelManager):
         """Public method called to update the LED pixel colour in the panel matrix depending on its state (using message passing)."""
         if self._revealed:
-            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(self._colour))
+            panel_manager.update_pixel(self._grid_pos, self.__calculate_rgb(self._colour))
         elif self._flagged:
-            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(FLAGGED_COLOUR))
+            panel_manager.update_pixel(self._grid_pos, self.__calculate_rgb(FLAGGED_COLOUR))
         else:
-            panel_manager.update_pixel(self._grid_pos, self._calculate_rgb(UNREVEALED_COLOUR))
+            panel_manager.update_pixel(self._grid_pos, self.__calculate_rgb(UNREVEALED_COLOUR))
 
 class Mine(LED):
     """Mine subclass of LED -- type of pixel user should avoid in the game to win"""
@@ -288,7 +288,7 @@ class Joystick(MiniJoyStickI2C):
         """Accessor method for joystick cursor position."""
         return self._pos
 
-    def _get_direction(self, current_time: int) -> str | None:
+    def __get_direction(self, current_time: int) -> str | None:
         """Non-public method that returns the direction the joystick is pointed towards, outside of debouncing time."""
         # current_time is used to represent the current time (number of nanoseconds) while avoiding confusion with the time module name
         if current_time - self._prev_time > JOYSTICK_DEBOUNCE_DURATION:
@@ -308,7 +308,7 @@ class Joystick(MiniJoyStickI2C):
                 return 'up'
         return None
 
-    def _b_pressed(self, current_time: int) -> bool:
+    def __b_pressed(self, current_time: int) -> bool:
         """Non-public method to check whether the 'B' button is pressed, outside of debouncing time."""
         if current_time - self._prev_time > JOYSTICK_DEBOUNCE_DURATION and super().button_pressed(super().BUTTON_B):
             self._prev_time = current_time
@@ -316,7 +316,7 @@ class Joystick(MiniJoyStickI2C):
         else:
             return False
 
-    def _c_pressed(self, current_time: int) -> bool:
+    def __c_pressed(self, current_time: int) -> bool:
         """Non-public method to check whether the 'C' button is pressed, outside of debouncing time."""
         if current_time - self._prev_time > JOYSTICK_DEBOUNCE_DURATION and super().button_pressed(super().BUTTON_C):
             self._prev_time = current_time
@@ -331,7 +331,7 @@ class Joystick(MiniJoyStickI2C):
         current_time = time.time_ns()
         led = panel.get_pixel(self._pos)
         # Move joystick position depending on direction of joystick
-        direction = self._get_direction(current_time)
+        direction = self.__get_direction(current_time)
         if direction is not None:
             led.set_brightness(MAX_BRIGHTNESS)
             if direction == 'left':
@@ -343,13 +343,13 @@ class Joystick(MiniJoyStickI2C):
             elif direction == 'down':
                 self._pos[1] = min(self._pos[1] + 1, PIXELS_Y - 1)
         # Reveals or flags the LED if buttons are pressed
-        if self._b_pressed(current_time):
+        if self.__b_pressed(current_time):
             if not self._game_started:
                 panel.setup_game(self._pos)
                 self._game_started = True
                 led = panel.get_pixel(self._pos)
             led.reveal(panel)
-        elif self._game_started and self._c_pressed(current_time):
+        elif self._game_started and self.__c_pressed(current_time):
             led.flag()
 
 # Instantiate joystick and panel_manager objects
