@@ -102,9 +102,9 @@ class PanelManager:
     def setup_game(self, starting_pos: list[int]):
         """Method that generates the map of mines randomly and the remaining pixels accordingly."""
         while len(self._mine_coords) < NUMBER_OF_MINES:
-            # Generate random coordinate in grid but only add to the mine list if it is not on or next to the selected coordinate
+            # Generate random coordinate in grid but only add to the mine list if it is not on or next to the selected coordinate and not already in the list
             random_coord = (random.randint(0, PIXELS_X - 1), random.randint(0, PIXELS_Y - 1))
-            if not (-1 <= random_coord[0] -  starting_pos[0] <= 1 and -1 <= random_coord[1] -  starting_pos[1] <= 1):
+            if not (-1 <= random_coord[0] -  starting_pos[0] <= 1 and -1 <= random_coord[1] -  starting_pos[1] <= 1) and random_coord not in self._mine_coords:
                 self._mine_coords.append(random_coord)
         # Create each specific type of LED object in the grid, depending on whether it is on or next to a mine
         self._led_list = []
